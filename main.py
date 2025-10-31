@@ -14,42 +14,25 @@ import math
 
 
 # ============================================================================
-# Configuration - Automatic Detection
+# Configuration - Edit these settings
 # ============================================================================
 
-# Auto-detect all .onnx files in the current directory
-def auto_detect_anime_models():
-    """Automatically find and load all anime model files"""
-    models = {}
-    
-    # Common anime model names
-    model_patterns = {
-        'hayao': ['hayao', 'Hayao', 'HAYAO'],
-        'shinkai': ['shinkai', 'Shinkai', 'SHINKAI'],
-        'paprika': ['paprika', 'Paprika', 'PAPRIKA'],
-    }
-    
-    # Get all .onnx files
-    try:
-        all_files = [f for f in os.listdir('.') if f.endswith('.onnx')]
-        
-        for file in all_files:
-            for style, patterns in model_patterns.items():
-                if any(pattern in file for pattern in patterns):
-                    models[style] = file
-                    break
-        
-        if models:
-            print(f"✅ Auto-detected {len(models)} anime model(s):")
-            for style, path in models.items():
-                print(f"   - {style.capitalize()}: {path}")
-    except Exception as e:
-        print(f"⚠️  Error detecting models: {e}")
-    
-    return models
+# Anime filter settings - uncomment ONE option below:
 
-# Auto-detect models at startup
-ANIME_MODELS = auto_detect_anime_models()
+# Option 1: Single anime style (uncomment to enable)
+ANIME_MODEL_PATH = 'AnimeGANv2_Hayao.onnx'
+
+# Option 2: Multiple anime styles (uncomment to enable)
+ANIME_MODELS = {
+    'hayao': 'AnimeGANv2_Hayao.onnx',
+    'shinkai': 'AnimeGANv2_Shinkai.onnx',
+    'paprika': 'AnimeGANv2_Paprika.onnx',
+}
+
+# If not using anime, leave both commented
+# ANIME_MODEL_PATH = None
+# ANIME_MODELS = {}
+
 DOWNSIZE_RATIO = 0.75  # 0.5=fast, 0.75=balanced, 1.0=best quality
 
 
@@ -101,35 +84,40 @@ class AnimeGAN:
 # ============================================================================
 
 def initialize_anime_models():
-    """Initialize anime models based on auto-detection"""
+    """Initialize anime models based on configuration"""
     anime_gan = None
     anime_models_dict = {}
     current_style = None
-    anime_styles_list = []
     
-    if ANIME_MODELS:
-        print("\nLoading anime models...")
+    # Check if ANIME_MODELS is defined and is a dict
+    if 'ANIME_MODELS' in globals() and isinstance(ANIME_MODELS, dict) and ANIME_MODELS:
+        print("Loading anime models...")
         for name, path in ANIME_MODELS.items():
             if os.path.exists(path):
                 try:
                     anime_models_dict[name] = AnimeGAN(model_path=path, downsize_ratio=DOWNSIZE_RATIO)
-                    anime_styles_list.append(name)
                 except Exception as e:
                     print(f"⚠️  Failed to load {name}: {e}")
         
         if anime_models_dict:
-            current_style = anime_styles_list[0]
+            current_style = list(anime_models_dict.keys())[0]
             anime_gan = anime_models_dict[current_style]
-            print(f"✅ Loaded {len(anime_models_dict)} anime style(s)")
-            print(f"🎨 Press SPACEBAR to cycle through anime styles!\n")
+            print(f"✅ Loaded {len(anime_models_dict)} anime style(s): {list(anime_models_dict.keys())}")
     
-    return anime_gan, anime_models_dict, current_style, anime_styles_list
+    # Check single model path
+    elif ANIME_MODEL_PATH and os.path.exists(ANIME_MODEL_PATH):
+        try:
+            anime_gan = AnimeGAN(model_path=ANIME_MODEL_PATH, downsize_ratio=DOWNSIZE_RATIO)
+        except Exception as e:
+            print(f"⚠️  Failed to load anime model: {e}")
+    
+    return anime_gan, anime_models_dict, current_style
 
 
 # Initialize MediaPipe Face Mesh
 mp_face_mesh = mp.solutions.face_mesh
 face_mesh = mp_face_mesh.FaceMesh(
-    max_num_faces=3,  # Support 2 faces simultaneously
+    max_num_faces=2,  # Support 2 faces simultaneously
     refine_landmarks=True,
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5
@@ -313,25 +301,16 @@ def apply_filter(frame, landmarks, filter_type):
 def run_face_filter():
     """Main function running the face filter application"""
     
-    print("Initializing anime models...")
     # Initialize anime models
-    anime_gan, anime_models_dict, current_anime_style, anime_styles_list = initialize_anime_models()
+    anime_gan, anime_models_dict, current_anime_style = initialize_anime_models()
     anime_enabled = False
-    anime_index = 0  # Track current anime style index
     
-    print("Opening webcam...")
     cap = cv2.VideoCapture(0)
     
     if not cap.isOpened():
         print("❌ Error: Cannot access webcam")
-        print("Troubleshooting:")
-        print("  - Make sure no other app is using the webcam")
-        print("  - Try closing Zoom, Teams, Skype, etc.")
-        print("  - Check if webcam is connected")
-        input("\nPress Enter to exit...")
         return
     
-    print("✅ Webcam opened successfully!")
     current_filter = 'glasses'
     
     print("\n🎥 Webcam started!")
@@ -341,8 +320,12 @@ def run_face_filter():
     print("  2 - Mustache 🧔")
     print("  3 - No Filter ✨")
     if anime_models_dict:
-        print(f"  SPACEBAR - Cycle anime styles ({len(anime_styles_list)} loaded)")
-        print(f"             OFF → {' → '.join([s.upper() for s in anime_styles_list])} → OFF")
+        styles = list(anime_models_dict.keys())
+        for i, style in enumerate(styles[:3], 4):
+            print(f"  {i} - {style.capitalize()} anime style")
+        print("  7 - Toggle anime ON/OFF")
+    elif anime_gan:
+        print("  4 - Toggle anime ON/OFF")
     print("  ESC - Exit")
     print("\n👥 Supports up to 2 faces simultaneously!")
     print("=" * 50 + "\n")
@@ -351,7 +334,7 @@ def run_face_filter():
         ret, frame = cap.read()
         
         if not ret:
-            print("❌ Failed to grab frame from webcam")
+            print("❌ Failed to grab frame")
             break
         
         frame = cv2.flip(frame, 1)
@@ -379,20 +362,22 @@ def run_face_filter():
         filter_names = {'glasses': 'Glasses 🕶️', 'mustache': 'Mustache 🧔', 'none': 'No Filter ✨'}
         status_line = f"Filter: {filter_names[current_filter]} | Faces: {num_faces}"
         
-        if anime_models_dict:
-            if anime_enabled and current_anime_style:
-                status_line += f" | Anime: {current_anime_style.upper()}"
-            else:
-                status_line += " | Anime: OFF"
+        if anime_gan is not None:
+            anime_status = "ON" if anime_enabled else "OFF"
+            status_line += f" | Anime: {anime_status}"
+            if anime_models_dict and anime_enabled and current_anime_style:
+                status_line += f" ({current_anime_style.upper()})"
         
-        text_bg_height = 100
+        text_bg_height = 120 if (anime_gan and anime_models_dict) else 100 if anime_gan else 80
         cv2.rectangle(frame, (0, 0), (frame.shape[1], text_bg_height), (0, 0, 0), -1)
         
         cv2.putText(frame, status_line, (12, 32), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 3)
         cv2.putText(frame, status_line, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 150), 2)
         
         if anime_models_dict:
-            instruction = "1:Glasses 2:Mustache 3:None | SPACE:Anime | ESC:Exit"
+            instruction = "1:Glasses 2:Mustache 3:None | 4-6:Anime 7:Toggle | ESC:Exit"
+        elif anime_gan:
+            instruction = "1:Glasses 2:Mustache 3:None | 4:Toggle Anime | ESC:Exit"
         else:
             instruction = "1:Glasses 2:Mustache 3:None | ESC:Exit"
         
@@ -414,29 +399,34 @@ def run_face_filter():
         elif key == ord('3'):
             current_filter = 'none'
             print("✅ No filter")
-        elif key == 32:  # SPACEBAR
-            if anime_models_dict and anime_styles_list:
-                # Cycle through: OFF -> Style1 -> Style2 -> Style3 -> OFF
-                if not anime_enabled:
-                    # Turn ON first style
-                    anime_index = 0
-                    current_anime_style = anime_styles_list[anime_index]
+        elif key == ord('4'):
+            if anime_models_dict:
+                styles = list(anime_models_dict.keys())
+                if len(styles) > 0:
+                    current_anime_style = styles[0]
                     anime_gan = anime_models_dict[current_anime_style]
                     anime_enabled = True
-                    print(f"✅ Anime: {current_anime_style.upper()}")
-                else:
-                    # Move to next style
-                    anime_index += 1
-                    if anime_index >= len(anime_styles_list):
-                        # Cycle back to OFF
-                        anime_enabled = False
-                        anime_index = 0
-                        print("✅ Anime: OFF")
-                    else:
-                        # Switch to next style
-                        current_anime_style = anime_styles_list[anime_index]
-                        anime_gan = anime_models_dict[current_anime_style]
-                        print(f"✅ Anime: {current_anime_style.upper()}")
+                    print(f"✅ {current_anime_style.capitalize()} style")
+            elif anime_gan:
+                anime_enabled = not anime_enabled
+                print(f"✅ Anime: {'ON' if anime_enabled else 'OFF'}")
+        elif key == ord('5') and anime_models_dict:
+            styles = list(anime_models_dict.keys())
+            if len(styles) > 1:
+                current_anime_style = styles[1]
+                anime_gan = anime_models_dict[current_anime_style]
+                anime_enabled = True
+                print(f"✅ {current_anime_style.capitalize()} style")
+        elif key == ord('6') and anime_models_dict:
+            styles = list(anime_models_dict.keys())
+            if len(styles) > 2:
+                current_anime_style = styles[2]
+                anime_gan = anime_models_dict[current_anime_style]
+                anime_enabled = True
+                print(f"✅ {current_anime_style.capitalize()} style")
+        elif key == ord('7') and anime_models_dict:
+            anime_enabled = not anime_enabled
+            print(f"✅ Anime: {'ON' if anime_enabled else 'OFF'}")
     
     cap.release()
     cv2.destroyAllWindows()
@@ -455,48 +445,28 @@ if __name__ == "__main__":
 
 Requirements: 
   pip install opencv-python mediapipe numpy onnxruntime
+
+Anime Models Found in Current Directory:
 """)
     
     # Check for anime models
-    try:
-        anime_files = [f for f in os.listdir('.') if f.endswith('.onnx')]
-        if anime_files:
-            print("\nAnime Models Found in Current Directory:")
-            for f in anime_files:
-                print(f"  ✓ {f}")
-            print("\n✅ Anime filters will be loaded!\n")
-        else:
-            print("\n⚠️  No .onnx files found")
-            print("To add anime filters:")
-            print("  1. Download from: https://github.com/TachibanaYoshino/AnimeGANv2")
-            print("  2. Place .onnx files in this folder")
-            print("  3. Run script again\n")
-    except Exception as e:
-        print(f"⚠️  Could not check for anime files: {e}\n")
-    
-    # Check OpenCV
-    print("Checking dependencies...")
-    try:
-        print(f"  ✓ OpenCV version: {cv2.__version__}")
-    except:
-        print("  ❌ OpenCV not found! Run: pip install opencv-python")
-        exit(1)
-    
-    try:
-        print(f"  ✓ MediaPipe installed")
-    except:
-        print("  ❌ MediaPipe not found! Run: pip install mediapipe")
-        exit(1)
-    
-    print("\nStarting application...\n")
+    anime_files = [f for f in os.listdir('.') if f.endswith('.onnx')]
+    if anime_files:
+        for f in anime_files:
+            print(f"  ✓ {f}")
+        print("\n✅ Anime filters will be loaded!\n")
+    else:
+        print("  ⚠️  No .onnx files found")
+        print("\nTo add anime filters:")
+        print("  1. Download from: https://github.com/TachibanaYoshino/AnimeGANv2")
+        print("  2. Place .onnx files in this folder")
+        print("  3. Run script again\n")
     
     try:
         run_face_filter()
     except KeyboardInterrupt:
         print("\n\n✅ Exited by user")
     except Exception as e:
-        print(f"\n❌ Error occurred: {e}")
+        print(f"\n❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        print("\n")
-        input("Press Enter to exit...")
