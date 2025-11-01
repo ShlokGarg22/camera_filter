@@ -489,7 +489,7 @@ Requirements:
         exit(1)
     
     print("\nStarting application...\n")
-    
+
     try:
         run_face_filter()
     except KeyboardInterrupt:
@@ -500,3 +500,6 @@ Requirements:
         traceback.print_exc()
         print("\n")
         input("Press Enter to exit...")
+
+
+        
